@@ -1,3 +1,4 @@
+
 from flask import Flask, render_template, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -61,7 +62,7 @@ def get_movies():
             "horror":9648,"drama":18,"sci-fi":10765
         }
 
-        # 🔢 NUMBER
+        # 🔢 NUMBER OF RESULTS
         nums = re.findall(r'\d+', user_input)
         count = int(nums[0]) if nums else 5
 
@@ -73,23 +74,44 @@ def get_movies():
             content_type = "movie"
             current_genres = movie_genres
 
-        url = f"https://api.themoviedb.org/3/discover/{content_type}"
+        # ---------- 🎯 DIRECT SEARCH DETECTION ----------
+        search_mode = False
+        keywords = ["find", "search", "movie", "series", "show"]
 
-        params = {
-            "api_key": API_KEY,
-            "sort_by": "popularity.desc"
-        }
+        clean_input = user_input
+        for word in keywords:
+            clean_input = clean_input.replace(word, "")
 
-        # ⭐ TOP
-        if "top" in user_input or "best" in user_input:
+        clean_input = clean_input.strip()
+
+        # If not genre-based → treat as search
+        if clean_input and not any(g in user_input for g in current_genres):
+            search_mode = True
+
+        # ---------- API SETUP ----------
+        if search_mode:
+            url = f"https://api.themoviedb.org/3/search/{content_type}"
+            params = {
+                "api_key": API_KEY,
+                "query": clean_input
+            }
+        else:
+            url = f"https://api.themoviedb.org/3/discover/{content_type}"
+            params = {
+                "api_key": API_KEY,
+                "sort_by": "popularity.desc"
+            }
+
+        # ⭐ TOP / BEST
+        if not search_mode and ("top" in user_input or "best" in user_input):
             params["sort_by"] = "vote_average.desc"
 
         # 📅 YEAR
         year = re.search(r'20\d{2}', user_input)
-        if year:
+        if year and not search_mode:
             params["primary_release_year"] = year.group()
 
-        # 🌍 LANGUAGE DETECTION
+        # 🌍 LANGUAGE
         language_found = None
         for l in language_map:
             if l in user_input:
@@ -97,13 +119,13 @@ def get_movies():
                 params["with_original_language"] = language_found
                 break
 
-        # 🎭 MULTI GENRE
+        # 🎭 GENRES
         genres = []
         for g in current_genres:
             if g in user_input:
                 genres.append(str(current_genres[g]))
 
-        if genres:
+        if genres and not search_mode:
             params["with_genres"] = ",".join(genres)
 
         # ---------- TRY 1 ----------
@@ -111,7 +133,7 @@ def get_movies():
         results = res.json().get("results", [])
 
         # ---------- TRY 2 (REMOVE LANGUAGE) ----------
-        if not results and language_found:
+        if not results and language_found and not search_mode:
             temp = params.copy()
             temp.pop("with_original_language", None)
 
@@ -119,7 +141,7 @@ def get_movies():
             results = res.json().get("results", [])
 
         # ---------- TRY 3 (REMOVE GENRE ALSO) ----------
-        if not results:
+        if not results and not search_mode:
             temp = params.copy()
             temp.pop("with_original_language", None)
             temp.pop("with_genres", None)
@@ -192,3 +214,4 @@ with app.app_context():
 # ---------- RUN ----------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
+
