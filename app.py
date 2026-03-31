@@ -1,14 +1,14 @@
 from flask import Flask, render_template, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
-import requests
-import re
-import os
+from flask_cors import CORS
+import requests, re, os
 
 app = Flask(__name__)
+CORS(app)
+
 app.secret_key = "dev_secret"
 
-# DATABASE CONFIG
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'users.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -37,86 +37,99 @@ def home():
 @app.route("/get_movies", methods=["POST"])
 def get_movies():
     try:
-        data = request.json or {}
+        data = request.get_json(force=True)
         user_input = data.get("input", "").lower().strip()
 
         movies = []
 
-        # LANGUAGE MAP
+        # 🌍 LANGUAGE MAP
         language_map = {
             "tamil":"ta","english":"en","hindi":"hi","telugu":"te","kannada":"kn",
             "malayalam":"ml","korean":"ko","japanese":"ja","spanish":"es",
-            "chinese":"zh","french":"fr","german":"de","gujarati":"gu",
-            "marathi":"mr","bengali":"bn","urdu":"ur","arabic":"ar"
+            "chinese":"zh","french":"fr","german":"de"
         }
 
-        # GENRE MAP
-        genre_map = {
+        # 🎬 MOVIE GENRES
+        movie_genres = {
             "action":28,"comedy":35,"thriller":53,
             "horror":27,"drama":18,"sci-fi":878
         }
 
-        # NUMBER
+        # 📺 TV GENRES
+        tv_genres = {
+            "action":10759,"comedy":35,"thriller":9648,
+            "horror":9648,"drama":18,"sci-fi":10765
+        }
+
+        # 🔢 NUMBER
         nums = re.findall(r'\d+', user_input)
         count = int(nums[0]) if nums else 5
 
-        keywords = ["movie","movies","series","show"]
-        is_specific = not any(word in user_input for word in keywords)
-
-        content_type = "tv" if "series" in user_input else "movie"
-
-        # LIKE SEARCH
-        if "like" in user_input:
-            name = user_input.split("like")[-1].strip()
-
-            search = requests.get(
-                f"https://api.themoviedb.org/3/search/{content_type}",
-                params={"api_key": API_KEY, "query": name}
-            )
-
-            res = search.json().get("results", [])
-            if res:
-                movie_id = res[0]["id"]
-                sim = requests.get(
-                    f"https://api.themoviedb.org/3/{content_type}/{movie_id}/similar",
-                    params={"api_key": API_KEY}
-                )
-                results = sim.json().get("results", [])[:count]
-            else:
-                results = []
-
-        # SEARCH BY NAME
-        elif is_specific:
-            res = requests.get(
-                f"https://api.themoviedb.org/3/search/{content_type}",
-                params={"api_key": API_KEY, "query": user_input}
-            )
-            results = res.json().get("results", [])[:count]
-
-        # SMART FILTER
+        # 🎯 TYPE DETECTION
+        if any(x in user_input for x in ["series","webseries","show"]):
+            content_type = "tv"
+            current_genres = tv_genres
         else:
-            url = f"https://api.themoviedb.org/3/discover/{content_type}"
-            params = {"api_key": API_KEY, "sort_by": "popularity.desc"}
+            content_type = "movie"
+            current_genres = movie_genres
 
-            if "top" in user_input:
-                params["sort_by"] = "vote_average.desc"
+        url = f"https://api.themoviedb.org/3/discover/{content_type}"
 
-            year = re.search(r'20\d{2}', user_input)
-            if year:
-                params["primary_release_year"] = year.group()
+        params = {
+            "api_key": API_KEY,
+            "sort_by": "popularity.desc"
+        }
 
-            for l in language_map:
-                if l in user_input:
-                    params["with_original_language"] = language_map[l]
+        # ⭐ TOP
+        if "top" in user_input or "best" in user_input:
+            params["sort_by"] = "vote_average.desc"
 
-            for g in genre_map:
-                if g in user_input:
-                    params["with_genres"] = genre_map[g]
+        # 📅 YEAR
+        year = re.search(r'20\d{2}', user_input)
+        if year:
+            params["primary_release_year"] = year.group()
 
-            res = requests.get(url, params=params)
-            results = res.json().get("results", [])[:count]
+        # 🌍 LANGUAGE DETECTION
+        language_found = None
+        for l in language_map:
+            if l in user_input:
+                language_found = language_map[l]
+                params["with_original_language"] = language_found
+                break
 
-        # FORMAT OUTPUT
+        # 🎭 MULTI GENRE
+        genres = []
+        for g in current_genres:
+            if g in user_input:
+                genres.append(str(current_genres[g]))
+
+        if genres:
+            params["with_genres"] = ",".join(genres)
+
+        # ---------- TRY 1 ----------
+        res = requests.get(url, params=params)
+        results = res.json().get("results", [])
+
+        # ---------- TRY 2 (REMOVE LANGUAGE) ----------
+        if not results and language_found:
+            temp = params.copy()
+            temp.pop("with_original_language", None)
+
+            res = requests.get(url, params=temp)
+            results = res.json().get("results", [])
+
+        # ---------- TRY 3 (REMOVE GENRE ALSO) ----------
+        if not results:
+            temp = params.copy()
+            temp.pop("with_original_language", None)
+            temp.pop("with_genres", None)
+
+            res = requests.get(url, params=temp)
+            results = res.json().get("results", [])
+
+        results = results[:count]
+
+        # ---------- FORMAT ----------
         for m in results:
             poster = m.get("poster_path")
             movies.append({
@@ -125,7 +138,7 @@ def get_movies():
                 "poster": f"https://image.tmdb.org/t/p/w500{poster}" if poster else ""
             })
 
-        # SAVE HISTORY
+        # ---------- SAVE HISTORY ----------
         user_id = data.get("user_id")
         if user_id:
             db.session.add(History(query=user_input, user_id=user_id))
@@ -143,23 +156,33 @@ def history(user_id):
     data = History.query.filter_by(user_id=user_id).order_by(History.id.desc()).all()
     return jsonify([i.query for i in data])
 
-# ---------- AUTH ----------
+# ---------- SIGNUP ----------
 @app.route("/signup", methods=["POST"])
 def signup():
-    data = request.json
+    data = request.get_json(force=True)
+
     if User.query.filter_by(username=data["username"]).first():
         return jsonify({"status": "exists"})
-    user = User(username=data["username"], password=generate_password_hash(data["password"]))
+
+    user = User(
+        username=data["username"],
+        password=generate_password_hash(data["password"])
+    )
     db.session.add(user)
     db.session.commit()
+
     return jsonify({"status": "created"})
 
+# ---------- LOGIN ----------
 @app.route("/login", methods=["POST"])
 def login():
-    data = request.json
+    data = request.get_json(force=True)
+
     user = User.query.filter_by(username=data["username"]).first()
+
     if user and check_password_hash(user.password, data["password"]):
         return jsonify({"status": "success", "user_id": user.id})
+
     return jsonify({"status": "fail"})
 
 # ---------- INIT ----------
