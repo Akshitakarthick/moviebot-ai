@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html>
 <head>
@@ -9,17 +10,25 @@ body { margin:0; background:#0b0f1a; color:white; font-family:sans-serif; }
 .navbar { padding:15px; text-align:center; font-size:24px; color:red; position:relative; }
 .profile { position:absolute; right:20px; top:15px; }
 #profileMenu { display:none; background:#222; padding:10px; border-radius:10px; }
-input { padding:10px; border-radius:20px; border:none; background: rgba(255,255,255,0.1); color:white; }
+
+input { padding:10px; border-radius:20px; border:none; background: rgba(255,255,255,0.1); color:white; width:250px;}
 button { padding:10px; border:none; border-radius:20px; background:red; color:white; cursor:pointer; }
+
 .chat { height:40vh; overflow-y:auto; padding:20px; }
 .msg { margin:10px; padding:10px; border-radius:10px; max-width:70%; }
 .user { background:#2563eb; margin-left:auto; }
 .bot { background:#1e293b; }
+
 .row { padding:20px; }
 .movies { display:flex; overflow-x:auto; gap:10px; }
-.card { min-width:150px; transition:0.3s; cursor:pointer; }
+
+.card { min-width:150px; transition:0.3s; cursor:pointer; text-align:center; }
 .card:hover { transform: scale(1.15); }
 .card img { width:100%; border-radius:10px; }
+
+.title { font-size:14px; margin-top:5px; }
+.rating { font-size:12px; color:gold; }
+
 #loginModal { display:none; position:fixed; width:100%; height:100%; background:rgba(0,0,0,0.8); }
 .modal-box { padding:30px; width:300px; margin:120px auto; border-radius:10px; text-align:center; }
 </style>
@@ -40,11 +49,12 @@ button { padding:10px; border:none; border-radius:20px; background:red; color:wh
 </div>
 
 <div>
-<input id="input" placeholder="Ask movies..." onkeypress="if(event.key==='Enter') send()">
+<input id="input" placeholder="Search movies like 'Inception' or 'Tamil action movies'" onkeypress="if(event.key==='Enter') send()">
 <button onclick="send()">🔍</button>
 </div>
 </div>
 
+<!-- LOGIN MODAL -->
 <div id="loginModal">
 <div class="modal-box glass">
 <h3>Login</h3>
@@ -75,14 +85,12 @@ function openLogin(){loginModal.style.display="block";}
 function closeLogin(){loginModal.style.display="none";}
 
 function logout(){
-localStorage.removeItem("user_id");
+localStorage.clear();
 document.getElementById("profileName").innerText="Guest";
 alert("Logged out");
 }
 
 // ---------------- LOGIN / SIGNUP ----------------
-
-// SIGNUP
 function signup(){
 let username = document.getElementById("username").value;
 let password = document.getElementById("password").value;
@@ -103,7 +111,6 @@ alert("User already exists ❌");
 });
 }
 
-// LOGIN
 function login(){
 let username = document.getElementById("username").value;
 let password = document.getElementById("password").value;
@@ -119,6 +126,8 @@ if(data.status==="success"){
 alert("Login successful ✅");
 
 localStorage.setItem("user_id",data.user_id);
+localStorage.setItem("username",username);
+
 document.getElementById("profileName").innerText = username;
 
 closeLogin();
@@ -129,7 +138,6 @@ alert("Invalid login ❌");
 }
 
 // ---------------- CHAT ----------------
-
 function send(){
 let input=document.getElementById("input").value.trim();
 if(!input) return;
@@ -138,7 +146,7 @@ let chat=document.getElementById("chat");
 document.getElementById("input").value="";
 
 chat.innerHTML+=`<div class="msg user">${input}</div>`;
-chat.innerHTML+=`<div class="msg bot" id="loading">Loading...</div>`;
+chat.innerHTML+=`<div class="msg bot" id="loading">🔍 Searching...</div>`;
 
 fetch("/get_movies",{
 method:"POST",
@@ -151,11 +159,20 @@ user_id:localStorage.getItem("user_id")
 .then(r=>r.json())
 .then(data=>{
 let bot=document.getElementById("loading");
-if(!data.length){bot.innerText="No results ❌";return;}
+
+if(!data.length){
+bot.innerText="No results found ❌";
+return;
+}
 
 let html="<div class='movies'>";
 data.forEach(m=>{
-html+=`<div class="card" onclick="openTrailer('${m.title}')"><img src="${m.poster}"></div>`;
+html+=`
+<div class="card" onclick="openTrailer('${m.title}')">
+<img src="${m.poster}">
+<div class="title">${m.title}</div>
+<div class="rating">⭐ ${m.rating}</div>
+</div>`;
 });
 html+="</div>";
 
@@ -164,11 +181,10 @@ bot.innerHTML=html;
 }
 
 function openTrailer(t){
-window.open("https://youtube.com/results?search_query="+t+" trailer");
+window.open(`https://www.youtube.com/results?search_query=${t} official trailer`);
 }
 
 // ---------------- LOAD ROWS ----------------
-
 function loadRow(q,id){
 fetch("/get_movies",{
 method:"POST",
@@ -178,8 +194,14 @@ body:JSON.stringify({input:q})
 .then(r=>r.json())
 .then(d=>{
 let div=document.getElementById(id);
+div.innerHTML=""; // clear before load
+
 d.forEach(m=>{
-div.innerHTML+=`<div class="card" onclick="openTrailer('${m.title}')"><img src="${m.poster}"></div>`;
+div.innerHTML+=`
+<div class="card" onclick="openTrailer('${m.title}')">
+<img src="${m.poster}">
+<div class="title">${m.title}</div>
+</div>`;
 });
 });
 }
@@ -191,15 +213,14 @@ loadRow("horror movies","horrorRow");
 loadRow("thriller movies","thrillerRow");
 
 // ---------------- AUTO LOGIN ----------------
-
 window.onload = function(){
-let user_id = localStorage.getItem("user_id");
-if(user_id){
-document.getElementById("profileName").innerText = "User";
+let username = localStorage.getItem("username");
+if(username){
+document.getElementById("profileName").innerText = username;
 }
 }
-
 </script>
 
 </body>
 </html>
+
